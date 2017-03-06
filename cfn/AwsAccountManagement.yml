@@ -1,0 +1,77 @@
+Description: AWS Account Management
+Parameters:
+  Prefix:
+    Description: Prefix
+    Type: String
+  SourceBucket:
+    Description: Source Code Bucket.
+    Type: String
+  MailBoxBucket:
+    Description: Mail box Bucket.
+    Type: String
+Resources:
+  MailBoxBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref "MailBoxBucket"
+      PolicyDocument:
+        Id: !Join [ "", [ !Ref "Prefix", "MailBoxBucketPolicy" ] ]
+        Statement:
+        - Action: ['s3:PutObject']
+          Effect: Allow
+          Resource:
+              Fn::Join: ['', ['arn:aws:s3:::', {Ref: MailBoxBucket}, '/*' ]]
+          Principal:
+            Service:
+              - ses.amazonaws.com
+          Condition:
+            StringEquals:
+              aws:Referer:
+                - !Ref "AWS::AccountId"
+  SesRuleFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Join [ "", [ !Ref "Prefix", "SesRuleFunction" ] ]
+      Handler: sesResource.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref "SourceBucket"
+        S3Key: AwsManagedAccount_latest.zip
+      Runtime: nodejs4.3
+      Timeout: 25
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join [ "", [ !Ref "Prefix", "LambdaExecutionRole" ] ]
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+      Policies:
+      - PolicyName: root
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Resource: arn:aws:logs:*:*:*
+          - Effect: Allow
+            Action:
+            - ses:CreateReceiptRule
+            - ses:DeleteReceiptRule
+            Resource: "*"
+  SesRule:
+    Type: Custom::SesRule
+    Properties:
+      ServiceToken: !GetAtt SesRuleFunction.Arn
+    DependsOn: MailBoxBucketPolicy
